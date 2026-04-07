@@ -1,7 +1,7 @@
 # MailClaw Deployment Guide
 
 This guide covers deploying MailClaw in two configurations:
-1. **Cloudflare Worker** - Primary API service at `api.chatek.co/mailclaw`
+1. **Cloudflare Worker** - Primary API service at `vclaw.vchat.email/mailclaw`
 2. **vclaw Node Rust CLI** - Local CLI tool for admin operations
 
 ---
@@ -14,7 +14,7 @@ This guide covers deploying MailClaw in two configurations:
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │  MailClaw Worker (Hono)                                  │   │
 │  │  - Email receiving via Email Routing                     │   │
-│  │  - REST API at api.chatek.co/mailclaw                   │   │
+│  │  - REST API at vclaw.vchat.email/mailclaw               │   │
 │  │  - D1 Database (SQLite)                                  │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
@@ -39,7 +39,9 @@ This guide covers deploying MailClaw in two configurations:
 ### Prerequisites
 
 - Cloudflare account with Workers access
-- Domain `chatek.co` added to Cloudflare
+- Domain / zone for `vchat.email` added to Cloudflare
+- Cloudflare account ID: `5584c0716bd58bfd06d3e3fcbb25c5fb`
+- Cloudflare zone ID for `vchat.email`: `b337e26c9fd9f094ea5a0b7534d7a1b6`
 - Wrangler CLI authenticated (`wrangler login`)
 
 ### Step 1: Initial Setup (One-time)
@@ -113,18 +115,18 @@ bun run deploy
 Option A: Via Cloudflare Dashboard
 1. Go to Workers & Pages > mailclaw
 2. Settings > Triggers > Custom Domains
-3. Add: `api.chatek.co`
+3. Add: `vclaw.vchat.email`
 4. Update route prefix to `/mailclaw`
 
 Option B: Via Wrangler
 ```bash
 # Add custom domain to worker
-bunx wrangler domains add mailclaw api.chatek.co
+bunx wrangler domains add mailclaw vclaw.vchat.email
 ```
 
 ### Step 7: Configure Email Routing
 
-1. Go to Cloudflare Dashboard > chatek.co > Email > Email Routing
+1. Go to Cloudflare Dashboard > `vchat.email` > Email > Email Routing
 2. Enable Email Routing if not already enabled
 3. Go to Routing rules > Catch-all address
 4. Click Edit
@@ -132,7 +134,7 @@ bunx wrangler domains add mailclaw api.chatek.co
 6. Select: `mailclaw`
 7. Save
 
-All emails to `*@chatek.co` will now be received by MailClaw.
+Configure routing so onboarding mail for `matriculate@vchat.email` is received by MailClaw.
 
 ### Step 8: Verify Deployment
 
@@ -218,7 +220,8 @@ mailclaw config set \
 
 # Or if using custom domain:
 mailclaw config set \
-  --host "https://api.chatek.co/mailclaw" \
+  --host "https://vclaw.vchat.email/mailclaw" \
+  --host "https://vclaw.vchat.email/mailclaw" \
   --api-token "YOUR_API_TOKEN_FROM_STEP_4"
 ```
 
@@ -336,7 +339,10 @@ Set these in your GitHub repository settings:
 
 ```json
 {
-  "host": "https://api.chatek.co/mailclaw",
+  "host": "https://vclaw.vchat.email/mailclaw",
+  "host": "https://vclaw.vchat.email/mailclaw",
+  "api_token": "your-api-token-here"
+  "host": "https://vclaw.vchat.email/mailclaw",
   "api_token": "your-api-token-here"
 }
 ```
@@ -365,7 +371,9 @@ bunx wrangler d1 execute mailclaw-d1 --command="SELECT COUNT(*) FROM emails;"
 cat ~/.mailclaw/config.json
 
 # Test connectivity
-curl -I https://api.chatek.co/mailclaw/api/health
+curl -I https://vclaw.vchat.email/mailclaw/api/health
+curl -I https://vclaw.vchat.email/mailclaw/api/health
+curl -I https://vclaw.vchat.email/mailclaw/api/health
 
 # Verbose output
 mailclaw health --verbose
@@ -423,7 +431,8 @@ cargo build --release -j 2
 cargo install --path .
 
 # Configure
-mailclaw config set --host "https://api.chatek.co/mailclaw" --api-token "xxx"
+mailclaw config set --host "https://vclaw.vchat.email/mailclaw" --api-token "xxx"
+mailclaw config set --host "https://vclaw.vchat.email/mailclaw" --api-token "xxx"
 
 # Use
 mailclaw health
