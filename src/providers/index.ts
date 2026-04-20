@@ -1,3 +1,4 @@
+import { CloudflareProvider } from "./cloudflare";
 import { ResendProvider } from "./resend";
 import type { EmailProvider } from "./types";
 
@@ -11,8 +12,14 @@ export function createEmailProvider(env: CloudflareBindings): EmailProvider {
 			}
 			return new ResendProvider(env.RESEND_API_KEY);
 		}
-		case "cloudflare":
-			throw new Error("Cloudflare email send provider is not yet supported");
+		case "cloudflare": {
+			if (!env.SEND_EMAIL) {
+				throw new Error(
+					"SEND_EMAIL binding is required when using the Cloudflare provider (configure send_email in wrangler.jsonc)",
+				);
+			}
+			return new CloudflareProvider(env.SEND_EMAIL);
+		}
 		default:
 			throw new Error(`Unknown email provider: ${provider}`);
 	}

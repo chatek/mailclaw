@@ -214,6 +214,41 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   "https://mailclaw.example.com/api/emails/clx123abc"
 ```
 
+### Send email
+
+```
+POST /api/emails/send
+```
+
+Sends an email via the configured provider. At least one of `html` or `text` is required.
+
+**Body:**
+
+```json
+{
+  "from": "noreply@yourdomain.com",
+  "to": "recipient@example.com",
+  "subject": "Hello",
+  "text": "Plain text body",
+  "html": "<p>HTML body</p>",
+  "cc": ["cc@example.com"],
+  "bcc": ["bcc@example.com"],
+  "reply_to": "reply@example.com"
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "<message-id>",
+    "provider": "resend"
+  }
+}
+```
+
 ### Health check
 
 ```
@@ -331,9 +366,38 @@ The skill will automatically use the local `mailclaw` CLI to fetch and display r
 
 The skill definition is located at `skills/mailclaw/SKILL.md`. You can copy or adapt it for any AI agent framework that supports markdown-based skill definitions, or invoke the `mailclaw` CLI directly.
 
-## Limitations
+## Sending Email
 
-MailClaw currently supports **receiving and reading** emails only. Replying to and sending emails are not yet supported because [Cloudflare Email Sending](https://developers.cloudflare.com/email-routing/email-workers/send-emails/) is still in beta with a waitlist. We will add send/reply support once the feature becomes generally available.
+MailClaw supports two send providers, selectable via the `EMAIL_PROVIDER` env var (defaults to `resend`):
+
+- **`resend`** — Uses the [Resend API](https://resend.com). Requires `RESEND_API_KEY` secret. Verify your sending domain in the Resend dashboard.
+- **`cloudflare`** — Uses the native [Cloudflare Email Service](https://developers.cloudflare.com/email-service/) `send_email` binding. No external service required. Can send to any address once your sending domain is onboarded.
+
+Both providers can send to any recipient; the sending domain must be verified.
+
+### Use the Cloudflare Email Service
+
+1. In the Cloudflare dashboard, go to **Email** > **Email Sending** > **Onboard Domain**, choose your domain, and add the DNS records (SPF, DKIM, DMARC, and `cf-bounce` MX). Requires the domain to use Cloudflare DNS.
+2. The `SEND_EMAIL` binding is already configured in `wrangler.jsonc` with `"remote": true`, which routes calls to the Email Service.
+3. Switch the provider:
+
+   ```bash
+   bunx wrangler secret put EMAIL_PROVIDER
+   # enter: cloudflare
+   ```
+
+### Use Resend
+
+1. Add your domain in [Resend](https://resend.com/domains) and configure the provided DNS records.
+2. Set both secrets:
+
+   ```bash
+   bunx wrangler secret put RESEND_API_KEY
+   bunx wrangler secret put EMAIL_PROVIDER
+   # enter: resend   (or leave unset — resend is the default)
+   ```
+
+Outgoing sender addresses must use a domain that you own and have verified with the chosen provider.
 
 ## Local Development
 

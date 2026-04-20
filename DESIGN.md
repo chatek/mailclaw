@@ -2,7 +2,7 @@
 
 ## Overview
 
-MailClaw is a Cloudflare Workers-based email inbox service that receives emails via Cloudflare Email Routing (catch-all), stores them in D1, and exposes a token-protected REST API for reading, searching, and exporting emails. Ships with a Rust CLI and a Claude Code skill. Designed to be consumed by AI agents (e.g., Claude Code Skills, OpenClaw) for automated email processing.
+MailClaw is a Cloudflare Workers-based email service that receives emails via Cloudflare Email Routing (catch-all), stores them in D1, and exposes a token-protected REST API for reading, searching, exporting, and **sending** emails. Ships with a Rust CLI and a Claude Code skill. Designed to be consumed by AI agents (e.g., Claude Code Skills, OpenClaw) for automated email processing.
 
 ## Cloudflare Services
 
@@ -10,6 +10,7 @@ MailClaw is a Cloudflare Workers-based email inbox service that receives emails 
 |---|---|---|
 | **Workers** | HTTP API + Email handler | Yes |
 | **Email Routing** | Catch-all `*@domain.com` → Worker | Yes |
+| **Email Service** | Outbound email via `send_email` binding | Optional (for Cloudflare send provider) |
 | **D1 Database** | Email metadata + content storage | Yes |
 | **R2 Storage** | Attachment file storage | Optional (Phase 2) |
 
@@ -153,6 +154,49 @@ Get a single email with full content.
 
 Delete a single email.
 
+#### `POST /api/emails/send`
+
+Send an outbound email via the configured provider. At least one of `html` or `text` must be provided.
+
+**Body:**
+
+```json
+{
+  "from": "noreply@yourdomain.com",
+  "to": "recipient@example.com",
+  "subject": "Hello",
+  "text": "Plain text body",
+  "html": "<p>HTML body</p>",
+  "cc": ["cc@example.com"],
+  "bcc": ["bcc@example.com"],
+  "reply_to": "reply@example.com",
+  "headers": { "X-Entity-Ref-ID": "abc123" }
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "<provider-message-id>",
+    "provider": "resend"
+  }
+}
+```
+
+### Send Providers
+
+Provider selection is controlled by the `EMAIL_PROVIDER` secret (defaults to `resend`):
+
+| Provider | Binding / Secret | Notes |
+|---|---|---|
+| `resend` | `RESEND_API_KEY` | Calls the Resend HTTPS API. Domain must be verified in Resend. |
+| `cloudflare` | `SEND_EMAIL` binding (with `"remote": true`) | Uses the Cloudflare Email Service. Domain must be onboarded at Email Sending. |
+
+Both providers can send to any recipient; only the sending domain needs verification.
+
 #### `GET /api/health`
 
 Health check endpoint (no auth required).
@@ -185,15 +229,21 @@ Health check endpoint (no auth required).
 src/                                # Cloudflare Worker
 ├── index.ts                        # Worker entry point (email, fetch)
 ├── app.ts                          # Hono app setup with auth middleware
+├── env.d.ts                        # CloudflareBindings secret extensions
 ├── middleware/
-│   └── auth.ts                     # Bearer token authentication
+│   └── auth.ts                     # Bearer token authentication (timing-safe)
 ├── routes/
-│   ├── emails.ts                   # Email list, export, detail, delete
+│   ├── emails.ts                   # Email list, export, detail, delete, send
 │   └── health.ts                   # Health check
 ├── database/
 │   └── d1.ts                       # D1 query functions
 ├── handlers/
 │   └── email.ts                    # Cloudflare Email Routing handler
+├── providers/                      # Outbound email providers
+│   ├── types.ts                    # EmailProvider interface
+│   ├── resend.ts                   # Resend API provider
+│   ├── cloudflare.ts               # Cloudflare Email Service provider
+│   └── index.ts                    # Provider factory (dispatches by EMAIL_PROVIDER)
 ├── utils/
 │   ├── http.ts                     # Response helpers (OK, ERR)
 │   ├── mail.ts                     # Email content processing
@@ -234,15 +284,18 @@ None required for initial setup.
 
 ### Secrets (wrangler secret)
 
-| Secret | Description |
-|---|---|
-| `API_TOKEN` | Bearer token for API authentication |
+| Secret | Required | Description |
+|---|---|---|
+| `API_TOKEN` | Yes | Bearer token for API authentication |
+| `EMAIL_PROVIDER` | No | `resend` (default) or `cloudflare` |
+| `RESEND_API_KEY` | If provider = `resend` | Resend API key |
 
 ### Cloudflare Bindings
 
 | Binding | Type | Description |
 |---|---|---|
 | `D1` | D1Database | Email storage database |
+| `SEND_EMAIL` | SendEmail | Cloudflare Email Service binding (used by the `cloudflare` provider) |
 
 ## Rust CLI
 
@@ -259,6 +312,7 @@ The `mailclaw` binary wraps the REST API for terminal and AI agent use. Credenti
 | `export` | Export emails with full content |
 | `get <id>` | Get single email detail |
 | `delete <id>` | Delete an email |
+| `send` | Send an outbound email via the configured provider |
 | `health` | Check API reachability |
 
 All commands support `--json` for machine-readable output and `--host` / `--api-token` for one-off overrides.

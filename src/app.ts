@@ -1,14 +1,10 @@
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { authMiddleware } from "@/middleware/auth";
 import emailRoutes from "@/routes/emails";
 import healthRoutes from "@/routes/health";
 import { ERR } from "@/utils/http";
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
-
-// CORS
-app.use("*", cors());
 
 // Health check (no auth)
 app.route("/", healthRoutes);

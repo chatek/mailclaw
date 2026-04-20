@@ -1,5 +1,8 @@
 import type { Email, EmailFilters, EmailSummary } from "@/types";
 
+const EMAIL_COLUMNS =
+	"id, from_address, to_address, subject, received_at, html_content, text_content, has_attachments, attachment_count";
+
 export async function insertEmail(db: D1Database, email: Email) {
 	try {
 		const { success, error } = await db
@@ -96,7 +99,7 @@ export async function getEmailsExport(db: D1Database, filters: EmailFilters) {
 
 		const { results } = await db
 			.prepare(
-				`SELECT * FROM emails ${where}
+				`SELECT ${EMAIL_COLUMNS} FROM emails ${where}
 				 ORDER BY received_at DESC
 				 LIMIT ? OFFSET ?`,
 			)
@@ -116,7 +119,10 @@ export async function getEmailsExport(db: D1Database, filters: EmailFilters) {
 
 export async function getEmailById(db: D1Database, id: string) {
 	try {
-		const result = await db.prepare("SELECT * FROM emails WHERE id = ?").bind(id).first();
+		const result = await db
+			.prepare(`SELECT ${EMAIL_COLUMNS} FROM emails WHERE id = ?`)
+			.bind(id)
+			.first();
 		if (!result) return { email: null, error: undefined };
 		return {
 			email: { ...result, has_attachments: Boolean(result.has_attachments) } as Email,

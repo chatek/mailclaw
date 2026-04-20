@@ -172,6 +172,15 @@ mailclaw send --from "Name <sender@example.com>" --to recipient@example.com --su
 
 Sends an email via the configured provider (Resend by default). At least `--text` or `--html` is required. Multiple `--to`, `--cc`, `--bcc`, and `--reply-to` addresses can be specified.
 
+**JSON response:**
+
+```json
+{
+  "id": "<provider-message-id>",
+  "provider": "resend"
+}
+```
+
 ## Guidelines
 
 1. **Use the CLI, not curl** — All inbox operations should go through `mailclaw`.

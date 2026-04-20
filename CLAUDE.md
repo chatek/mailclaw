@@ -44,6 +44,7 @@ src/                            # Cloudflare Worker (TypeScript)
 ├── providers/                  # Email send providers
 │   ├── types.ts                # EmailProvider interface
 │   ├── resend.ts               # Resend API provider
+│   ├── cloudflare.ts           # Cloudflare Email Service provider
 │   └── index.ts                # Provider factory
 └── utils/                      # http, helpers, mail processing
 
