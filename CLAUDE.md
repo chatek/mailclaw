@@ -7,6 +7,7 @@ Cloudflare Workers email inbox service with a Rust CLI. Receives emails via Emai
 - **Runtime**: Cloudflare Workers
 - **Framework**: Hono.js + TypeScript
 - **Database**: Cloudflare D1
+- **Attachment storage**: Cloudflare R2 (`ATTACHMENTS` bucket)
 - **Email Parsing**: postal-mime + html-to-text
 - **CLI**: Rust (clap + reqwest + serde)
 - **Package Manager**: Bun
@@ -24,8 +25,9 @@ Cloudflare Workers email inbox service with a Rust CLI. Receives emails via Emai
 - `bun run format` — Biome format only
 - `bun run tail` — Wrangler tail (live logs)
 - `bun run cf-typegen` — Generate Cloudflare binding types
+- `bun run r2:create` — Create R2 attachment bucket
 - `bun run db:create` — Create D1 database
-- `bun run db:tables` — Apply schema
+- `bun run db:tables` — Apply schema (idempotent; also adds the `attachments` table)
 - `bun run db:indexes` — Apply indexes
 
 ## Project Structure
@@ -63,8 +65,10 @@ All `/api/emails*` routes require `Authorization: Bearer <token>`.
 
 - `GET /api/emails` — List (metadata only, paginated)
 - `GET /api/emails/export` — List with full content (paginated)
-- `GET /api/emails/:id` — Single email detail
-- `DELETE /api/emails/:id` — Delete email
+- `GET /api/emails/:id` — Single email detail (includes `attachments` metadata)
+- `DELETE /api/emails/:id` — Delete email (and its R2 attachments)
+- `GET /api/emails/:id/attachments` — List attachment metadata
+- `GET /api/emails/:id/attachments/:attachmentId` — Download raw attachment bytes (not the JSON envelope)
 - `POST /api/emails/send` — Send email (via Resend or Cloudflare provider)
 - `GET /api/health` — Health check (no auth)
 
@@ -79,6 +83,8 @@ The Rust CLI (`mailclaw`) wraps the REST API. Config is stored in `~/.mailclaw/c
 - `mailclaw config set --host <URL> --api-token <TOKEN>` — Save credentials
 - `mailclaw config show` — Show current config
 - `mailclaw list` / `export` / `get <id>` / `delete <id>` / `send` / `health` — API operations
+- `mailclaw attachments <id>` — List an email's attachments
+- `mailclaw download <email_id> <attachment_id> [-o path]` — Download one attachment
 - All commands support `--json` for machine-readable output
 
 ### Release

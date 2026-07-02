@@ -167,6 +167,57 @@ fn run() -> Result<()> {
                 println!("  provider: {}", response.provider);
             }
         }
+        Command::Attachments(ref args) => {
+            let settings = Settings::load(&cli)?;
+            let client = ApiClient::new(settings)?;
+            let response: AttachmentList = client.get(
+                &format!("api/emails/{}/attachments", args.id),
+                &[],
+                true,
+            )?;
+
+            if args.output.json {
+                print_json(&response)?;
+            } else {
+                print_attachment_list(&response);
+            }
+        }
+        Command::Download(ref args) => {
+            let settings = Settings::load(&cli)?;
+            let client = ApiClient::new(settings)?;
+            let download = client.download(&format!(
+                "api/emails/{}/attachments/{}",
+                args.email_id, args.attachment_id
+            ))?;
+
+            let target = match &args.output {
+                Some(path) => path.clone(),
+                None => PathBuf::from(
+                    download
+                        .filename
+                        .clone()
+                        .unwrap_or_else(|| args.attachment_id.clone()),
+                ),
+            };
+
+            fs::write(&target, &download.bytes).with_context(|| {
+                format!("failed to write attachment to {}", target.display())
+            })?;
+
+            if args.json {
+                print_json(&DownloadOutput {
+                    path: target.display().to_string(),
+                    size: download.bytes.len() as u64,
+                    content_type: download.content_type.clone(),
+                })?;
+            } else {
+                println!(
+                    "Saved {} ({})",
+                    target.display(),
+                    format_bytes(download.bytes.len() as u64)
+                );
+            }
+        }
     }
 
     Ok(())
@@ -209,6 +260,10 @@ enum Command {
     Delete(DeleteArgs),
     /// Send an email via the configured provider.
     Send(SendArgs),
+    /// List attachment metadata for an email.
+    Attachments(AttachmentsArgs),
+    /// Download a single attachment to a file.
+    Download(DownloadArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -262,6 +317,32 @@ struct DeleteArgs {
 
     #[command(flatten)]
     output: OutputArgs,
+}
+
+#[derive(Args, Debug)]
+struct AttachmentsArgs {
+    /// Email ID.
+    id: String,
+
+    #[command(flatten)]
+    output: OutputArgs,
+}
+
+#[derive(Args, Debug)]
+struct DownloadArgs {
+    /// Email ID.
+    email_id: String,
+
+    /// Attachment ID (from `mailclaw attachments <email_id>`).
+    attachment_id: String,
+
+    /// Output file path. Defaults to the attachment's original filename
+    /// in the current directory.
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -467,6 +548,46 @@ impl ApiClient {
         self.send_and_parse(request, &url)
     }
 
+    fn download(&self, path: &str) -> Result<DownloadResult> {
+        let url = format!("{}/{}", self.settings.host, path.trim_start_matches('/'));
+        let response = self
+            .http
+            .get(&url)
+            .bearer_auth(self.settings.require_api_token()?)
+            .send()
+            .with_context(|| format!("request failed: {url}"))?;
+
+        let status = response.status();
+        let content_type = header_value(&response, "content-type");
+        let filename = response
+            .headers()
+            .get("content-disposition")
+            .and_then(|value| value.to_str().ok())
+            .and_then(parse_content_disposition_filename);
+
+        let bytes = response
+            .bytes()
+            .with_context(|| format!("failed to read response body from {url}"))?
+            .to_vec();
+
+        if status.is_success() {
+            return Ok(DownloadResult {
+                bytes,
+                filename,
+                content_type,
+            });
+        }
+
+        // Error responses still come back as the JSON envelope.
+        if let Ok(envelope) = serde_json::from_slice::<ApiEnvelope<serde_json::Value>>(&bytes) {
+            if let Some(error) = envelope.error {
+                bail!("API error [{}]: {}", error.code, error.message);
+            }
+        }
+
+        bail!("API request failed with status {status}");
+    }
+
     fn send_and_parse<T>(&self, request: reqwest::blocking::RequestBuilder, url: &str) -> Result<T>
     where
         T: DeserializeOwned,
@@ -596,6 +717,37 @@ struct SendEmailResponse {
     provider: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct AttachmentList {
+    attachments: Vec<AttachmentMeta>,
+    total: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AttachmentMeta {
+    id: String,
+    email_id: String,
+    #[serde(default)]
+    filename: Option<String>,
+    #[serde(default)]
+    mime_type: Option<String>,
+    size: u64,
+    created_at: i64,
+}
+
+struct DownloadResult {
+    bytes: Vec<u8>,
+    filename: Option<String>,
+    content_type: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct DownloadOutput {
+    path: String,
+    size: u64,
+    content_type: Option<String>,
+}
+
 fn config_path() -> Result<PathBuf> {
     let home = user_home_dir()?;
     Ok(home.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME))
@@ -718,6 +870,95 @@ fn preferred_body(email: &Email) -> Option<&str> {
                 .as_deref()
                 .filter(|html| !html.trim().is_empty())
         })
+}
+
+fn print_attachment_list(list: &AttachmentList) {
+    println!("{} attachment(s)", list.total);
+    for attachment in &list.attachments {
+        println!();
+        println!("{}", attachment.filename.as_deref().unwrap_or("(no name)"));
+        println!("  id: {}", attachment.id);
+        println!(
+            "  type: {}",
+            attachment.mime_type.as_deref().unwrap_or("unknown")
+        );
+        println!("  size: {}", format_bytes(attachment.size));
+        println!("  created: {}", format_seconds(attachment.created_at));
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} {}", UNITS[unit])
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
+    }
+}
+
+fn header_value(response: &reqwest::blocking::Response, name: &str) -> Option<String> {
+    response
+        .headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string())
+}
+
+/// Extracts a filename from a Content-Disposition header, preferring the
+/// RFC 5987 `filename*=UTF-8''` form over the plain `filename=` form.
+fn parse_content_disposition_filename(header: &str) -> Option<String> {
+    for part in header.split(';') {
+        let part = part.trim();
+        if let Some(value) = part.strip_prefix("filename*=") {
+            let value = value.trim();
+            if let Some(encoded) = value.strip_prefix("UTF-8''").or_else(|| {
+                value
+                    .strip_prefix("utf-8''")
+                    .or_else(|| value.strip_prefix("''"))
+            }) {
+                return Some(percent_decode(encoded.trim_matches('"')));
+            }
+        }
+    }
+
+    for part in header.split(';') {
+        let part = part.trim();
+        if let Some(value) = part.strip_prefix("filename=") {
+            let name = value.trim().trim_matches('"');
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(
+                std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""),
+                16,
+            ) {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn format_seconds(timestamp: i64) -> String {

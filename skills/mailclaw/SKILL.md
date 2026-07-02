@@ -82,7 +82,24 @@ Returns full emails including `text_content` and `html_content`. Use this when t
 mailclaw get <email_id> [--json]
 ```
 
-Returns one full email, including body content.
+Returns one full email, including body content and `attachments` metadata.
+
+### List attachments
+
+```bash
+mailclaw attachments <email_id> [--json]
+```
+
+Lists attachment metadata (id, filename, mime_type, size) for an email.
+
+### Download attachment
+
+```bash
+mailclaw download <email_id> <attachment_id> [-o <path>] [--json]
+```
+
+Downloads one attachment's binary content. Without `-o`, it saves to the
+attachment's original filename in the current directory.
 
 ### Delete email
 

@@ -8,9 +8,24 @@ export interface Email {
 	text_content: string | null;
 	has_attachments: boolean;
 	attachment_count: number;
+	// Populated only on the single-email detail endpoint.
+	attachments?: AttachmentSummary[];
 }
 
 export type EmailSummary = Omit<Email, "html_content" | "text_content">;
+
+export interface Attachment {
+	id: string;
+	email_id: string;
+	filename: string | null;
+	mime_type: string | null;
+	size: number;
+	r2_key: string;
+	created_at: number;
+}
+
+// Attachment metadata as exposed via the API (R2 key is internal).
+export type AttachmentSummary = Omit<Attachment, "r2_key">;
 
 export interface EmailFilters {
 	from?: string;

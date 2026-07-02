@@ -40,6 +40,43 @@ emails.get("/api/emails/export", async (c) => {
 	return c.json(OK({ emails: results, total, limit: filters.limit, offset: filters.offset }));
 });
 
+// List attachment metadata for an email
+emails.get("/api/emails/:id/attachments", async (c) => {
+	const emailId = c.req.param("id");
+
+	const { email, error: emailError } = await db.getEmailById(c.env.D1, emailId);
+	if (emailError) return c.json(ERR("D1_ERROR", emailError.message), 500);
+	if (!email) return c.json(ERR("NOT_FOUND", "Email not found"), 404);
+
+	const { attachments, error } = await db.getAttachmentsByEmailId(c.env.D1, emailId);
+	if (error) return c.json(ERR("D1_ERROR", error.message), 500);
+	return c.json(OK({ attachments, total: attachments.length }));
+});
+
+// Download a single attachment (raw binary, not the JSON envelope)
+emails.get("/api/emails/:id/attachments/:attachmentId", async (c) => {
+	const emailId = c.req.param("id");
+	const attachmentId = c.req.param("attachmentId");
+
+	const { attachment, error } = await db.getAttachmentById(c.env.D1, emailId, attachmentId);
+	if (error) return c.json(ERR("D1_ERROR", error.message), 500);
+	if (!attachment) return c.json(ERR("NOT_FOUND", "Attachment not found"), 404);
+
+	const object = await c.env.ATTACHMENTS.get(attachment.r2_key);
+	if (!object) return c.json(ERR("NOT_FOUND", "Attachment content missing"), 404);
+
+	const filename = attachment.filename || attachment.id;
+	// RFC 5987 encoding so non-ASCII filenames survive the header.
+	const encodedName = encodeURIComponent(filename);
+	c.header("Content-Type", attachment.mime_type || "application/octet-stream");
+	c.header("Content-Length", String(attachment.size));
+	c.header(
+		"Content-Disposition",
+		`attachment; filename="${filename.replace(/"/g, "")}"; filename*=UTF-8''${encodedName}`,
+	);
+	return c.body(object.body);
+});
+
 // Get single email
 emails.get("/api/emails/:id", async (c) => {
 	const { email, error } = await db.getEmailById(c.env.D1, c.req.param("id"));
@@ -49,12 +86,20 @@ emails.get("/api/emails/:id", async (c) => {
 	return c.json(OK(email));
 });
 
-// Delete single email
+// Delete single email (and its attachments from R2)
 emails.delete("/api/emails/:id", async (c) => {
-	const { deleted, error } = await db.deleteEmailById(c.env.D1, c.req.param("id"));
+	const emailId = c.req.param("id");
 
+	const { keys, error: keysError } = await db.getAttachmentKeysByEmailId(c.env.D1, emailId);
+	if (keysError) return c.json(ERR("D1_ERROR", keysError.message), 500);
+
+	const { deleted, error } = await db.deleteEmailById(c.env.D1, emailId);
 	if (error) return c.json(ERR("D1_ERROR", error.message), 500);
 	if (!deleted) return c.json(ERR("NOT_FOUND", "Email not found"), 404);
+
+	if (keys.length > 0) {
+		await c.env.ATTACHMENTS.delete(keys);
+	}
 	return c.json(OK({ message: "Email deleted" }));
 });
 

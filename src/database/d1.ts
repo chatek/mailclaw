@@ -1,4 +1,4 @@
-import type { Email, EmailFilters, EmailSummary } from "@/types";
+import type { Attachment, AttachmentSummary, Email, EmailFilters, EmailSummary } from "@/types";
 
 const EMAIL_COLUMNS =
 	"id, from_address, to_address, subject, received_at, html_content, text_content, has_attachments, attachment_count";
@@ -124,17 +124,95 @@ export async function getEmailById(db: D1Database, id: string) {
 			.bind(id)
 			.first();
 		if (!result) return { email: null, error: undefined };
-		return {
-			email: { ...result, has_attachments: Boolean(result.has_attachments) } as Email,
-			error: undefined,
-		};
+
+		const { results: attachmentRows } = await db
+			.prepare(
+				`SELECT id, email_id, filename, mime_type, size, created_at
+				 FROM attachments WHERE email_id = ? ORDER BY created_at ASC`,
+			)
+			.bind(id)
+			.all();
+
+		const email = {
+			...result,
+			has_attachments: Boolean(result.has_attachments),
+			attachments: attachmentRows as unknown as AttachmentSummary[],
+		} as Email;
+
+		return { email, error: undefined };
 	} catch (e: unknown) {
 		return { email: null, error: e instanceof Error ? e : new Error(String(e)) };
 	}
 }
 
+export async function insertAttachment(db: D1Database, attachment: Attachment) {
+	try {
+		const { success, error } = await db
+			.prepare(
+				`INSERT INTO attachments (id, email_id, filename, mime_type, size, r2_key, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			)
+			.bind(
+				attachment.id,
+				attachment.email_id,
+				attachment.filename,
+				attachment.mime_type,
+				attachment.size,
+				attachment.r2_key,
+				attachment.created_at,
+			)
+			.run();
+		return { success, error };
+	} catch (e: unknown) {
+		return { success: false, error: e instanceof Error ? e : new Error(String(e)) };
+	}
+}
+
+export async function getAttachmentsByEmailId(db: D1Database, emailId: string) {
+	try {
+		const { results } = await db
+			.prepare(
+				`SELECT id, email_id, filename, mime_type, size, created_at
+				 FROM attachments WHERE email_id = ? ORDER BY created_at ASC`,
+			)
+			.bind(emailId)
+			.all();
+		return { attachments: results as unknown as AttachmentSummary[], error: undefined };
+	} catch (e: unknown) {
+		return { attachments: [], error: e instanceof Error ? e : new Error(String(e)) };
+	}
+}
+
+export async function getAttachmentById(db: D1Database, emailId: string, attachmentId: string) {
+	try {
+		const result = await db
+			.prepare(
+				`SELECT id, email_id, filename, mime_type, size, r2_key, created_at
+				 FROM attachments WHERE id = ? AND email_id = ?`,
+			)
+			.bind(attachmentId, emailId)
+			.first();
+		return { attachment: (result as Attachment | null) ?? null, error: undefined };
+	} catch (e: unknown) {
+		return { attachment: null, error: e instanceof Error ? e : new Error(String(e)) };
+	}
+}
+
+export async function getAttachmentKeysByEmailId(db: D1Database, emailId: string) {
+	try {
+		const { results } = await db
+			.prepare("SELECT r2_key FROM attachments WHERE email_id = ?")
+			.bind(emailId)
+			.all<{ r2_key: string }>();
+		return { keys: results.map((row) => row.r2_key), error: undefined };
+	} catch (e: unknown) {
+		return { keys: [], error: e instanceof Error ? e : new Error(String(e)) };
+	}
+}
+
 export async function deleteEmailById(db: D1Database, id: string) {
 	try {
+		await db.prepare("DELETE FROM attachments WHERE email_id = ?").bind(id).run();
 		const { meta } = await db.prepare("DELETE FROM emails WHERE id = ?").bind(id).run();
 		return { deleted: (meta?.changes ?? 0) > 0, error: undefined };
 	} catch (e: unknown) {

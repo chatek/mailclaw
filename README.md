@@ -214,6 +214,36 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   "https://mailclaw.example.com/api/emails/clx123abc"
 ```
 
+Deleting an email also removes its stored attachments from R2.
+
+### List attachments
+
+```
+GET /api/emails/:id/attachments
+```
+
+Returns attachment metadata (id, filename, mime_type, size, created_at). Binary
+content is stored in R2, not returned here.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://mailclaw.example.com/api/emails/clx123abc/attachments"
+```
+
+### Download an attachment
+
+```
+GET /api/emails/:id/attachments/:attachmentId
+```
+
+Streams the raw attachment bytes (not the JSON envelope) with `Content-Type`
+and `Content-Disposition` set from the stored metadata.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -OJ \
+  "https://mailclaw.example.com/api/emails/clx123abc/attachments/att456"
+```
+
 ### Send email
 
 ```
@@ -303,6 +333,12 @@ mailclaw get clx123abc
 
 # Delete one email
 mailclaw delete clx123abc
+
+# List attachments for an email
+mailclaw attachments clx123abc
+
+# Download an attachment (defaults to its original filename)
+mailclaw download clx123abc att456 -o ./worksheet.pdf
 ```
 
 ### Quick install (macOS & Linux)
